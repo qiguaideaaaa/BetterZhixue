@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         更好的智学网
 // @namespace    https://github.com/qiguaideaaaa/BetterZhixue
-// @version      0.4
+// @version      0.5
 // @description  让智学网变得更好
 // @author       QiguaiAAA
 // @connect      self
@@ -15,31 +15,50 @@
 (function () {
     'use strict';
 
-
     //平均分计算使用
-    var data_list = document.getElementsByClassName("total");
-    var regex_full = /满分(\d+)\.(\d+)/;
-    var regex_mean = /本题班级得分率<i>(\d+)/;
+    var rawMeanData = document.getElementsByClassName("total");
+    var rawAnswerData = document.getElementsByClassName("ml20");
+    var REGEX_FULL = /满分(\d+)\.(\d+)/;
+    var REGEX_MEAN = /本题班级得分率<i>(\d+)/;
+    var ACCURACY = 100;
 
-    //智学网通信需使用
-    var xtoken = "";
+    //通信需使用
+    var XTOKEN = "";
+    var MD5_LOAD_URL = "https://blueimp.github.io/JavaScript-MD5/js/md5.js";
+    var API_GET_TOKEN_URL = "https://www.zhixue.com/container/app/token/getToken";
+    var API_GET_REPORT_URL = "https://www.zhixue.com/zhixuebao/report/exam/getReportMain?examId=";
+    var API_GET_SUBJECT_DIAGNOSIS = "https://www.zhixue.com/zhixuebao/report/exam/getSubjectDiagnosis?examId=";
+    var AIP_GET_LEVEL_TREND = "https://www.zhixue.com/zhixuebao/report/exam/getLevelTrend?pageIndex=1&pageSize=1&examId=";
     var examid = sessionStorage.getItem('zxbReportExamId');
 
     //智学网通信验证需使用
     var timeDifference = 0;
-    var bicode = "0001";
-    var password = "iflytek!@#123student";
+    var BICODE = "0001";
+    var PASSWORD = "iflytek!@#123student";
 
-    //平均分
-    var mean_score = 0.0;
+    //界面
+    var DISPLAY_MEAN_SCORE_FONT_SIZE = "14px";
+    var DISPLAY_MEAN_SCORE_SPACING = 3;
+    var displayMeanScoreSpacingStr = "";
+
+    //其他常量
+    var COOKIE_EXAMID_LOC = "zxbReportExamId";
+    var SPACE = "&nbsp;";
+    var CHECK_SPACE_MILLISECOND = 1500;
+
+    //DEBUG
+    var ENABLE_DEBUG = false;
 
     ready();
 
     function ready() {
+        for(let i =0;i<DISPLAY_MEAN_SCORE_SPACING;i++){
+            displayMeanScoreSpacingStr +=SPACE;
+        }
         //加载外部库
         let script = document.createElement('script');
         script.setAttribute('type', 'text/javascript');
-        script.src = "https://blueimp.github.io/JavaScript-MD5/js/md5.js";
+        script.src = MD5_LOAD_URL;
         document.documentElement.appendChild(script);
         script.onload = function () {
             getToken();
@@ -49,7 +68,7 @@
     //获取通信Token
     function getToken() {
         GM.xmlHttpRequest({
-            url: "https://www.zhixue.com/container/app/token/getToken",
+            url: API_GET_TOKEN_URL,
             method: "GET",
             headers: {
                 "content-type": "application/json",
@@ -59,8 +78,8 @@
             onload: function (response) {
                 if (response.status === 200) {
                     const data = response.response;
-                    //console.log(data);
-                    xtoken = data.result;
+                    debugLog(data);
+                    XTOKEN = data.result;
                 }
                 main();
             }
@@ -68,21 +87,21 @@
     }
 
     function main() {
-        meanScore();
+        getMeanScore();
         setInterval(function () {
             let div = document.getElementsByClassName("general")[0];
             if ((div == undefined) || (div == null) || (div.length == 0)||(!checkMark(div))) {
                 return;
             }
             realTotalScore(div);
-        }, 1500); // 每1.5秒钟检查一次
+        }, CHECK_SPACE_MILLISECOND); 
         setInterval(function () {
             var div = document.getElementsByClassName("subject_analysis_div")[0];
             if ((div == undefined) || (div == null) || (div.length == 0)||(!checkMark(div))) {
                 return;
             }
             calculateSeat();
-        }, 1500); // 每1.5秒钟检查一次
+        }, CHECK_SPACE_MILLISECOND);
     }
 
     //计算折后的分数
@@ -95,7 +114,7 @@
         function getPaper(){
             updateExamid();
             sendRequest(
-                "https://www.zhixue.com/zhixuebao/report/exam/getReportMain?examId="+examid,
+                API_GET_REPORT_URL+examid,
                 "GET",
                 function(response){
                     if(!(response.status === 200)){
@@ -111,14 +130,14 @@
             for(let i =0;i<paper.length;i++){
                 let thePaper = paper[i];
                 let sub = thePaper.title;
-                let full_score = thePaper.standardScore;
+                let fullScore = thePaper.standardScore;
                 let score = thePaper.userScore;
                 let value = getValue(sub);
                 total = total + (score*100)*(value*10);
-                full = full + (full_score*100)*(value*10);
+                full = full + (fullScore*100)*(value*10);
                 
             }
-            console.log("折分后总分:"+total/1000+" of "+ full/1000);
+            debugLog("折分后总分:"+total/1000+" of "+ full/1000);
             display();
         }
 
@@ -128,8 +147,8 @@
                 return;
             }
             let place = div.childNodes[2].childNodes[0];
-            let full_place = place.getElementsByClassName("specific")[0];
-            full_place.innerHTML = "折分前" + full_place.innerHTML + "&nbsp;&nbsp;折分后满分 "+full/1000;
+            let fullPlace = place.getElementsByClassName("specific")[0];
+            fullPlace.innerHTML = "折分前" + fullPlace.innerHTML + SPACE+SPACE+"折分后满分 "+full/1000;
             let span = document.createElement("span");
             span.setAttribute("class", "bold");
             span.innerHTML = "折后:"+total/1000+"分";
@@ -157,47 +176,60 @@
                 case "生物":
                     return 0.3;
             }
-            return 0.0;
+            return 1.0;
         }
     }
 
     function updateExamid(){
-        examid = sessionStorage.getItem('zxbReportExamId');
+        examid = sessionStorage.getItem(COOKIE_EXAMID_LOC);
     }
 
-    function meanScore() {
+    function getMeanScore() {
 
-        if (data_list.length == 0) {
+        if (rawMeanData.length == 0) {
             return;
         }
 
-        for (var i = 0; i < data_list.length; i++) {
-            var data = data_list[i].innerHTML;
-            displayAdvicedThing(data_list[i]);
-            var int_score = parseInt(regex_full.exec(data)[1]);
-            var float_score = parseInt(regex_full.exec(data)[2])
-            var mean_percent = parseInt(regex_mean.exec(data)[1]);
+        let meanScore = 0.0;
+        let choiceProblemMeanScore = 0.0;
+        let choiceProblemExist = false;
 
-            var full_score = int_score * 10 + float_score;
+        for (var i = 0; i < rawMeanData.length; i++) {
+            var data = rawMeanData[i].innerHTML;
+            displayAdvicedThing(rawMeanData[i]);
+            var rawFullScoreInt = parseInt(REGEX_FULL.exec(data)[1]);
+            var rawFullScoreFloat = parseInt(REGEX_FULL.exec(data)[2]);
+            var meanRate = parseInt(REGEX_MEAN.exec(data)[1]);
 
-            mean_score = mean_score + full_score * mean_percent;
+            var fullScore = rawFullScoreInt * ACCURACY + rawFullScoreFloat;
+            if(isChoiceProblem(i)){
+                choiceProblemMeanScore += fullScore*meanRate;
+                choiceProblemExist = true;
+            }
 
-            //DEBUG时去掉注释
-            //console.log("第"+(i+1)+"题，满分"+full_score/10+"分，班级平均得分率"+mean_percent+"%");
+            meanScore += fullScore * meanRate;
 
-            //debug();
+            debugLog("第"+(i+1)+"题，满分"+fullScore/ACCURACY+"分，班级平均得分率"+meanRate+"%");
 
         }
 
-        console.log("平均分:" + mean_score / 1000);
+        if(!choiceProblemExist) choiceProblemMeanScore = -1.0;
 
-        displayMeanScore();
+        debugLog("平均分:" + meanScore / (ACCURACY*100));
+        
+        displayMeanScore(meanScore,choiceProblemMeanScore);
 
         //在页面上显示计算结果
-        function displayMeanScore() {
+        function displayMeanScore(fullMeanScore,choiceMeanScore) {
             var div = document.getElementById("question_parsing_containter");
             var ele = document.createElement("p");
-            ele.innerHTML = "<center>班级平均分:" + mean_score / 1000 + "分</center>";
+            if(choiceMeanScore >=0){
+                ele.innerHTML += ("班级客观题平均分:" + choiceMeanScore / (ACCURACY*100) + "分"+displayMeanScoreSpacingStr);
+                ele.innerHTML += ("班级主观题平均分:" + (fullMeanScore - choiceMeanScore) / (ACCURACY*100) + "分"+displayMeanScoreSpacingStr);
+            }
+            ele.innerHTML += ("班级平均分:" + fullMeanScore / (ACCURACY*100) + "分");
+            ele.style.textAlign = "center";
+            ele.style.fontSize = DISPLAY_MEAN_SCORE_FONT_SIZE;
             div.insertBefore(ele, div.firstChild);
     
         }
@@ -210,11 +242,16 @@
         }
     }
 
-    //DEBUG函数
-    function debug() {
-        console.log("start_debug");
-        console.log("mean_score:" + mean_score);
-        console.log("debug is over");
+    function isChoiceProblem(problemId){
+        if(problemId >=rawAnswerData.length) return false;
+        let ans = rawAnswerData[problemId].innerHTML.charAt(2);
+        if(ans>='A' && ans <='Z') return true;
+        else return false;
+    }
+
+    function debugLog(msg){
+        if(!ENABLE_DEBUG) return;
+        console.debug(msg);
     }
 
     //来自智学网
@@ -235,11 +272,11 @@
     function getAuth() {
         var authguid = getGuid();
         var authtimestamp = new Date().getTime() - timeDifference;
-        var authtokenOrigin = authguid + authtimestamp + password;
+        var authtokenOrigin = authguid + authtimestamp + PASSWORD;
         return {
             authguid: authguid,
             authtimestamp: authtimestamp,
-            authbizcode: bicode,
+            authbizcode: BICODE,
             authtokenOrigin: authtokenOrigin,
             authtoken: md5(authtokenOrigin)
         }
@@ -250,7 +287,6 @@
         let element = ele;
         let mark = element.getElementsByClassName("marked");
         if (!((mark == undefined) || (mark == null) || (mark.length == 0))) {
-            //有标记,返回假
             return false;
         }
         mark = undefined;
@@ -271,7 +307,7 @@
 
         function getAnalysisData() {
             sendRequest(
-                "https://www.zhixue.com/zhixuebao/report/exam/getSubjectDiagnosis?examId=" + examid,
+                API_GET_SUBJECT_DIAGNOSIS + examid,
                 "GET",
                 function (response) {
                     const data = response.response;
@@ -284,12 +320,12 @@
 
         function getTotalData() {
             sendRequest(
-                "https://www.zhixue.com/zhixuebao/report/exam/getLevelTrend?examId=" + examid + "&pageIndex=1&pageSize=1",
+                AIP_GET_LEVEL_TREND + examid,
                 "GET",
                 function (response) {
                     const data = response.response;
                     if (response.status == 200) {
-                        //console.log(data);
+                        debugLog(data);
                         total = data.result.list[0].dataList[0].totalNum;
                         core();
                     }
@@ -333,10 +369,10 @@
         function getSeat(value) {
             //i = 排名-1
             for (let i = 0; i < total; i++) {
-                let start_rank = i * 100 / (total - 1);
-                let rank = parseFloat(start_rank.toFixed(1));
-                //console.log("尝试rank:"+rank+"此时value:"+value);
-                //console.log(rank == value);
+                let startRank = i * 100 / (total - 1);
+                let rank = parseFloat(startRank.toFixed(1));
+                debugLog("尝试rank:"+rank+"此时value:"+value);
+                debugLog(rank == value);
                 if (!(rank == value)) {
                     continue;
                 }
@@ -376,7 +412,7 @@
                 "authtoken": auth.authtoken,
                 "User-Agent": navigator.userAgent,
                 "X-Trans-Ready": true,
-                "XToken": xtoken
+                "XToken": XTOKEN
             },
             responseType: "json",
             onload: onload,
